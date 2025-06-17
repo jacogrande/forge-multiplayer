@@ -7,6 +7,8 @@ import forge.gamemodes.match.LobbySlotType;
 import forge.gamemodes.net.CompatibleObjectDecoder;
 import forge.gamemodes.net.CompatibleObjectEncoder;
 import forge.gamemodes.net.event.*;
+import forge.game.Game;
+import forge.game.security.SecureGameState;
 import forge.gui.GuiBase;
 import forge.gui.interfaces.IGuiGame;
 import forge.gui.util.SOptionPane;
@@ -16,6 +18,8 @@ import forge.model.FModel;
 import forge.util.IterableUtil;
 import forge.util.Localizer;
 import forge.localinstance.properties.ForgeNetPreferences;
+import forge.gui.network.NetworkEventLogger;
+import forge.gui.network.NetworkMetrics;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -40,6 +44,9 @@ import java.util.function.Predicate;
 
 public final class FServerManager {
     private static FServerManager instance = null;
+    private static final NetworkEventLogger networkLogger = NetworkEventLogger.forComponent("FServerManager");
+    private static final NetworkMetrics metrics = NetworkMetrics.getInstance();
+    
     private final Map<Channel, RemoteClient> clients = Maps.newTreeMap();
     private boolean isHosting = false;
     private EventLoopGroup bossGroup = new NioEventLoopGroup(1);
@@ -50,11 +57,17 @@ public final class FServerManager {
     private boolean UPnPMapped = false;
     private int port;
     private static final Localizer localizer = Localizer.getInstance();
+    private final SecureNetworkIntegration securityIntegration = new SecureNetworkIntegration();
+    private SecureGameServerHandler secureHandler = null;
     private final Thread shutdownHook = new Thread(() -> {
         if (isHosting()) {
             stopServer(false);
         }
     });
+    
+    // Session tracking
+    private volatile String serverSessionId;
+    private volatile long serverStartTime;
 
     private FServerManager() {
     }
@@ -82,6 +95,12 @@ public final class FServerManager {
 
     public void startServer(final int port) {
         this.port = port;
+        this.serverSessionId = java.util.UUID.randomUUID().toString().substring(0, 8);
+        this.serverStartTime = System.currentTimeMillis();
+        
+        // Set logging context
+        networkLogger.setSessionContext(serverSessionId, "SERVER", null);
+        
         String UPnPOption = FModel.getNetPreferences().getPref(ForgeNetPreferences.FNetPref.UPnP);
         boolean startUPnP;
         if(UPnPOption.equalsIgnoreCase("ASK")) {
@@ -89,7 +108,13 @@ public final class FServerManager {
         } else {
             startUPnP = UPnPOption.equalsIgnoreCase("ALWAYS");
         }
+        
         System.out.println("Starting Multiplayer Server");
+        networkLogger.logEvent(NetworkEventLogger.EventType.SESSION, NetworkEventLogger.Severity.INFO,
+                "Starting multiplayer server on port {}", port)
+                .withField("port", port)
+                .withField("upnpEnabled", startUPnP)
+                .log();
         try {
             final ServerBootstrap b = new ServerBootstrap()
                     .group(bossGroup, workerGroup)
@@ -99,6 +124,11 @@ public final class FServerManager {
                         @Override
                         public void initChannel(final SocketChannel ch) throws Exception {
                             final ChannelPipeline p = ch.pipeline();
+                            // Create secure handler instance if not already created
+                            if (secureHandler == null) {
+                                secureHandler = new SecureGameServerHandler();
+                            }
+                            
                             p.addLast(
                                     new CompatibleObjectEncoder(),
                                     new CompatibleObjectDecoder(9766 * 1024, ClassResolvers.cacheDisabled(null)),
@@ -106,7 +136,7 @@ public final class FServerManager {
                                     new RegisterClientHandler(),
                                     new LobbyInputHandler(),
                                     new DeregisterClientHandler(),
-                                    new GameServerHandler());
+                                    secureHandler);
                         }
                     });
 
@@ -127,9 +157,23 @@ public final class FServerManager {
             }
             Runtime.getRuntime().addShutdownHook(shutdownHook);
             isHosting = true;
+            
+            long startupDuration = System.currentTimeMillis() - serverStartTime;
+            networkLogger.logEvent(NetworkEventLogger.EventType.SESSION, NetworkEventLogger.Severity.INFO,
+                    "Multiplayer server started successfully in {}ms", startupDuration)
+                    .withField("port", port)
+                    .withField("startupDurationMs", startupDuration)
+                    .withField("upnpEnabled", startUPnP)
+                    .log();
+                    
         } catch (final InterruptedException e) {
             System.out.println(e.getMessage());
             e.printStackTrace();
+            networkLogger.logError("SERVER_STARTUP_INTERRUPTED", e);
+        } catch (final Exception e) {
+            System.out.println("Server startup failed: " + e.getMessage());
+            e.printStackTrace();
+            networkLogger.logError("SERVER_STARTUP_FAILED", e);
         }
     }
 
@@ -244,11 +288,79 @@ public final class FServerManager {
         } else if (type == LobbySlotType.REMOTE) {
             for (final RemoteClient client : clients.values()) {
                 if (client.getIndex() == index) {
+                    // Return secure GUI if security is enabled
                     return new NetGuiGame(client);
                 }
             }
         }
         return null;
+    }
+    
+    /**
+     * Get a secure GUI for a remote player with security filtering.
+     */
+    public IGuiGame getSecureGui(final int index, final Game game) {
+        final LobbySlot slot = localLobby.getSlot(index);
+        final LobbySlotType type = slot.getType();
+        
+        if (type == LobbySlotType.LOCAL) {
+            return GuiBase.getInterface().getNewGuiGame();
+        } else if (type == LobbySlotType.REMOTE) {
+            for (final RemoteClient client : clients.values()) {
+                if (client.getIndex() == index) {
+                    SecureGameState secureState = securityIntegration.getSecureGameState(game);
+                    if (secureState != null && index < game.getPlayers().size()) {
+                        return new SecureNetGuiGame(client, secureState, game.getPlayers().get(index).getView());
+                    } else {
+                        // Fallback to regular NetGuiGame if security not available
+                        return new NetGuiGame(client);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Register a game for security management.
+     */
+    public void registerGameForSecurity(Game game) {
+        securityIntegration.registerGame(game);
+        if (secureHandler != null) {
+            // Additional handler-specific registration if needed
+        }
+    }
+    
+    /**
+     * Unregister a game from security management.
+     */
+    public void unregisterGameFromSecurity(Game game) {
+        securityIntegration.unregisterGame(game);
+        if (secureHandler != null) {
+            secureHandler.cleanupGameSecurity(game);
+        }
+    }
+    
+    /**
+     * Enable or disable security for the server.
+     */
+    public void setSecurityEnabled(boolean enabled) {
+        securityIntegration.enableSecurity(enabled);
+        System.out.println("Server security " + (enabled ? "enabled" : "disabled"));
+    }
+    
+    /**
+     * Check if security is currently enabled.
+     */
+    public boolean isSecurityEnabled() {
+        return securityIntegration.isSecurityEnabled();
+    }
+    
+    /**
+     * Get security metrics for monitoring.
+     */
+    public SecureNetworkIntegration.SecurityMetrics getSecurityMetrics() {
+        return securityIntegration.getMetrics();
     }
 
     // inspired by:
@@ -350,7 +462,16 @@ public final class FServerManager {
         public void channelActive(final ChannelHandlerContext ctx) throws Exception {
             final RemoteClient client = new RemoteClient(ctx.channel());
             clients.put(ctx.channel(), client);
+            String clientAddress = ctx.channel().remoteAddress().toString();
+            
             System.out.println("Client connected to server at " + ctx.channel().remoteAddress());
+            networkLogger.logEvent(NetworkEventLogger.EventType.CONNECTION, NetworkEventLogger.Severity.INFO,
+                    "Client connected from {}", clientAddress)
+                    .withField("clientAddress", clientAddress)
+                    .withField("totalClients", clients.size())
+                    .log();
+            metrics.recordConnectionAttempt(true, 0);
+            
             updateLobbyState();
             super.channelActive(ctx);
         }
@@ -399,9 +520,19 @@ public final class FServerManager {
         public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
             final RemoteClient client = clients.remove(ctx.channel());
             final String username = client.getUsername();
+            String clientAddress = ctx.channel().remoteAddress().toString();
+            
             localLobby.disconnectPlayer(client.getIndex());
             broadcast(new MessageEvent(String.format("%s left the room", username)));
             broadcast(new LogoutEvent(username));
+            
+            networkLogger.logEvent(NetworkEventLogger.EventType.DISCONNECTION, NetworkEventLogger.Severity.INFO,
+                    "Client {} disconnected from {}", username, clientAddress)
+                    .withField("username", username)
+                    .withField("clientAddress", clientAddress)
+                    .withField("totalClients", clients.size())
+                    .log();
+            
             super.channelInactive(ctx);
         }
     }

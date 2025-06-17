@@ -49,15 +49,29 @@ mvn test -Dtest=GameSimulationTest
 ### Multi-Module Structure
 The project follows a layered architecture with clear separation:
 
-- **Core Layer**: `forge-core` (data structures, utilities), `forge-game` (rules engine), `forge-ai` (AI logic)
-- **GUI Layer**: `forge-gui` (common UI), platform-specific implementations (`forge-gui-desktop`, `forge-gui-android`, etc.)
-- **Tools**: `adventure-editor` (content creation), `forge-lda` (deck generation)
+#### Core Foundation
+- **forge-core**: Foundational data structures, card database management, deck construction, internationalization, and cross-platform utilities
+- **forge-game**: Complete MTG rules engine with event-driven architecture, zone management, and comprehensive ability system
+- **forge-ai**: Single unified AI with 100+ ability implementations, configurable personalities, and advanced simulation
+
+#### GUI Implementation
+- **forge-gui**: Platform-agnostic GUI framework providing game mode implementations, data management, and UI abstractions
+- **forge-gui-desktop**: Java Swing implementation with native desktop integration, advanced UI features, and cross-platform distribution
+- **forge-gui-mobile**: LibGDX-based mobile interface for Android and iOS
+- **forge-gui-android**: Android-specific implementation with mobile optimizations
+
+#### Specialized Tools
+- **adventure-editor**: Content creation tools for adventure mode
+- **forge-lda**: Deck generation algorithms and analysis
+- **forge-installer**: Cross-platform installation packages
 
 ### Key Technologies
-- **Java 17+** with extensive JVM module system integration
-- **Maven** for build management with complex profiles
-- **Java Swing** for desktop GUI, **LibGDX** for mobile platforms
-- **TestNG** for testing, **Netty** for networking
+- **Java 17+** with extensive JVM module system integration and `--add-opens` arguments for reflection
+- **Maven** for build management with platform-specific profiles (`windows-linux`, `osx`)
+- **Java Swing** for desktop GUI with FSkin theming system and custom components
+- **LibGDX** for mobile platforms with cross-platform asset management
+- **TestNG** for comprehensive testing including game simulation tests
+- **Netty** for multiplayer networking and client-server architecture
 
 ### Card Scripting System
 Cards are defined using a custom text-based format in `forge-gui/res/cardsfolder/`. Each card script defines abilities, triggers, and game mechanics:
@@ -73,19 +87,30 @@ Oracle:Deal 3 damage to any target.
 ## Development Patterns
 
 ### Code Organization
-- **Game Logic**: Centralized in `forge-game` module with comprehensive rules engine
-- **Platform Abstraction**: GUI modules implement platform-specific interfaces defined in `forge-gui`
-- **Data Management**: Card database, deck management, and persistence handled in `forge-core`
+- **Game Logic**: Centralized in `forge-game` module with event-driven architecture using Observer, Command, and State patterns
+- **Platform Abstraction**: GUI modules implement `IGuiBase`/`IGuiGame` interfaces defined in `forge-gui` using Bridge pattern
+- **Data Management**: Card database, deck management, and persistence handled in `forge-core` with sophisticated storage abstractions
+- **AI Architecture**: Layered decision-making system with configurable personalities via `.ai` profile files
+
+### Core Design Patterns
+- **Model-View-Controller**: Clear separation between data models, platform-specific views, and game controllers
+- **Strategy Pattern**: AI personalities, game modes, and deck generation algorithms are pluggable implementations
+- **Factory Pattern**: AbilityFactory creates spell/ability implementations, extensive use for complex object creation
+- **Observer Pattern**: Event system for game state changes, UI updates, achievement tracking, and trigger management
+- **Bridge Pattern**: Platform abstraction allows same game logic across Swing desktop and LibGDX mobile interfaces
 
 ### Testing Strategy
-- **Game Simulation Tests**: Full game scenarios in `forge-game/src/test/`
-- **Unit Tests**: Component-level testing across all modules
-- **AI Testing**: Automated gameplay validation for computer opponents
+- **Game Simulation Tests**: Full MTG game scenarios in `forge-game/src/test/` with complex card interaction validation
+- **Unit Tests**: Component-level testing across all modules with TestNG framework
+- **AI Testing**: Automated gameplay validation with configurable AI personalities and decision-making verification
+- **Integration Tests**: Multi-component interaction testing including spell resolution, combat, and zone changes
+- **Performance Tests**: Memory usage monitoring, UI responsiveness, and large game state handling
 
 ### Memory Management
-- Application requires **4GB+ heap space** for full functionality
-- Extensive use of caching for card images and game objects
-- Custom collection classes (`FCollection`) for performance optimization
+- Application requires **4GB+ heap space** for full functionality with 20,000+ card database and image caching
+- Extensive use of lazy loading, weak references, and efficient data structures (`FCollection`, `ItemPool`)
+- Custom collection classes optimized for MTG data patterns with type-safe operations
+- Platform-specific memory optimizations for mobile vs desktop environments
 
 ## Build Profiles and Platform Considerations
 
@@ -107,10 +132,24 @@ Oracle:Deal 3 damage to any target.
 ## Card Database and Content
 
 The project includes comprehensive Magic: The Gathering content:
-- **20,000+ cards** with full rules implementation
-- **Complete set data** including booster configurations
-- **Game formats** (Standard, Legacy, Modern, Commander, etc.)
-- **Draft environments** with 70+ pre-configured cubes
+- **20,000+ cards** with full rules implementation using custom script format
+- **Complete set data** including booster configurations and edition metadata
+- **Game formats** (Standard, Legacy, Modern, Commander, etc.) with format-specific card legality
+- **Draft environments** with 70+ pre-configured cubes including MTGO Legacy/Vintage cubes
+- **Game Modes**: Quest mode campaigns, Planar Conquest, Limited formats (Draft/Sealed), Tournament system
+
+### Card Implementation System
+- **Card Scripts**: Custom text format in `forge-gui/res/cardsfolder/` defining abilities, costs, and effects
+- **Ability System**: 100+ effect types with modular `SpellAbilityEffect` implementations
+- **Zone Management**: Complete MTG zone tracking (Battlefield, Hand, Library, Graveyard, Exile, Command, etc.)
+- **Trigger System**: 80+ trigger types covering all MTG interactions with event-driven processing
+- **Static Effects**: Implements MTG's 8-layer dependency system with timestamp ordering
+
+### AI and Gameplay
+- **AI Personalities**: Configurable via `.ai` profile files (Default, Cautious, Reckless, Experimental)
+- **Decision Engine**: Multi-stage AI decision process with legality checking, timing evaluation, and simulation
+- **Combat System**: Sophisticated combat evaluation with threat assessment and optimal play
+- **Memory System**: AI learning and adaptation capabilities with game state tracking
 
 Card content is primarily in `forge-gui/res/` with scripts in `cardsfolder/` and metadata in `editions/`.
 

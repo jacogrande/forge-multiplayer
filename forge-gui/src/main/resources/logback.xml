@@ -1,10 +1,192 @@
 <configuration>
-  <appender name="A1" class="ch.qos.logback.core.ConsoleAppender">
-    <encoder>
-      <pattern>%-4r [%t] %-5p %c %x - %m%n</pattern>
+  <!-- Properties for configuration -->
+  <property name="LOG_DIR" value="${user.home}/.forge/logs" />
+  <property name="ARCHIVE_DIR" value="${LOG_DIR}/archive" />
+  
+  <!-- JUL to SLF4J bridge configuration -->
+  <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator">
+    <resetJUL>true</resetJUL>
+  </contextListener>
+
+  <!-- Console appender with structured format -->
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+      <providers>
+        <timestamp/>
+        <logLevel/>
+        <loggerName/>
+        <message/>
+        <mdc/>
+        <arguments/>
+        <stackTrace/>
+      </providers>
+      <jsonGeneratorDecorator class="net.logstash.logback.decorate.PrettyPrintingJsonGeneratorDecorator"/>
     </encoder>
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>INFO</level>
+    </filter>
   </appender>
-  <root level="ALL">
-    <appender-ref ref="A1"/>
+
+  <!-- Network events file appender with JSON format -->
+  <appender name="NETWORK_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${LOG_DIR}/network.log</file>
+    <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+      <providers>
+        <timestamp/>
+        <logLevel/>
+        <loggerName/>
+        <message/>
+        <mdc/>
+        <arguments/>
+        <stackTrace/>
+      </providers>
+    </encoder>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>${ARCHIVE_DIR}/network.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+      <maxFileSize>10MB</maxFileSize>
+      <maxHistory>30</maxHistory>
+      <totalSizeCap>1GB</totalSizeCap>
+    </rollingPolicy>
+  </appender>
+
+  <!-- Security events file appender -->
+  <appender name="SECURITY_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${LOG_DIR}/security.log</file>
+    <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+      <providers>
+        <timestamp/>
+        <logLevel/>
+        <loggerName/>
+        <message/>
+        <mdc/>
+        <arguments/>
+        <stackTrace/>
+      </providers>
+    </encoder>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>${ARCHIVE_DIR}/security.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+      <maxFileSize>10MB</maxFileSize>
+      <maxHistory>90</maxHistory>
+      <totalSizeCap>500MB</totalSizeCap>
+    </rollingPolicy>
+  </appender>
+
+  <!-- Game events file appender -->
+  <appender name="GAME_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${LOG_DIR}/game.log</file>
+    <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+      <providers>
+        <timestamp/>
+        <logLevel/>
+        <loggerName/>
+        <message/>
+        <mdc/>
+        <arguments/>
+        <stackTrace/>
+      </providers>
+    </encoder>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>${ARCHIVE_DIR}/game.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+      <maxFileSize>50MB</maxFileSize>
+      <maxHistory>7</maxHistory>
+      <totalSizeCap>2GB</totalSizeCap>
+    </rollingPolicy>
+  </appender>
+
+  <!-- Performance/metrics file appender -->
+  <appender name="METRICS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${LOG_DIR}/metrics.log</file>
+    <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+      <providers>
+        <timestamp/>
+        <logLevel/>
+        <loggerName/>
+        <message/>
+        <mdc/>
+        <arguments/>
+      </providers>
+    </encoder>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>${ARCHIVE_DIR}/metrics.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+      <maxFileSize>100MB</maxFileSize>
+      <maxHistory>30</maxHistory>
+      <totalSizeCap>3GB</totalSizeCap>
+    </rollingPolicy>
+  </appender>
+
+  <!-- Async appenders for performance -->
+  <appender name="ASYNC_NETWORK" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="NETWORK_FILE"/>
+    <queueSize>512</queueSize>
+    <discardingThreshold>0</discardingThreshold>
+    <includeCallerData>false</includeCallerData>
+  </appender>
+
+  <appender name="ASYNC_SECURITY" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="SECURITY_FILE"/>
+    <queueSize>512</queueSize>
+    <discardingThreshold>0</discardingThreshold>
+    <includeCallerData>false</includeCallerData>
+  </appender>
+
+  <appender name="ASYNC_GAME" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="GAME_FILE"/>
+    <queueSize>1024</queueSize>
+    <discardingThreshold>0</discardingThreshold>
+    <includeCallerData>false</includeCallerData>
+  </appender>
+
+  <appender name="ASYNC_METRICS" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="METRICS_FILE"/>
+    <queueSize>2048</queueSize>
+    <discardingThreshold>0</discardingThreshold>
+    <includeCallerData>false</includeCallerData>
+  </appender>
+
+  <!-- Network-specific loggers -->
+  <logger name="forge.gamemodes.net" level="INFO" additivity="false">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="ASYNC_NETWORK"/>
+  </logger>
+
+  <logger name="forge.gui.network" level="INFO" additivity="false">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="ASYNC_NETWORK"/>
+  </logger>
+
+  <!-- Security-specific loggers -->
+  <logger name="forge.game.security" level="INFO" additivity="false">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="ASYNC_SECURITY"/>
+  </logger>
+
+  <logger name="forge.gamemodes.net.server.Secure" level="INFO" additivity="false">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="ASYNC_SECURITY"/>
+  </logger>
+
+  <!-- Game state loggers -->
+  <logger name="forge.game" level="WARN" additivity="false">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="ASYNC_GAME"/>
+  </logger>
+
+  <!-- Performance/metrics loggers -->
+  <logger name="forge.metrics" level="INFO" additivity="false">
+    <appender-ref ref="ASYNC_METRICS"/>
+  </logger>
+
+  <logger name="performance" level="INFO" additivity="false">
+    <appender-ref ref="ASYNC_METRICS"/>
+  </logger>
+
+  <!-- Special handling for noisy libraries -->
+  <logger name="io.netty" level="WARN"/>
+  <logger name="org.jupnp" level="WARN"/>
+  <logger name="org.eclipse.jetty" level="WARN"/>
+
+  <!-- Root logger -->
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
   </root>
 </configuration>

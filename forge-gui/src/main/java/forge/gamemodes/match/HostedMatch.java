@@ -39,6 +39,7 @@ import forge.util.TextUtil;
 import forge.util.collect.FCollectionView;
 import forge.util.maps.HashMapOfLists;
 import forge.util.maps.MapOfLists;
+import forge.gamemodes.net.server.FServerManager;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.*;
@@ -158,6 +159,11 @@ public class HostedMatch {
         // Android API 31 and above can use completeOnTimeout -> CompletableFuture:
         //https://developer.android.com/reference/java/util/concurrent/CompletableFuture#completeOnTimeout(T,%20long,%20java.util.concurrent.TimeUnit)
         game.AI_CAN_USE_TIMEOUT = !GuiBase.isAndroid() || GuiBase.getAndroidAPILevel() > 30;
+        
+        // Register game for security if this is a multiplayer/network game
+        if (isNetworkGame()) {
+            FServerManager.getInstance().registerGameForSecurity(game);
+        }
 
         StaticData.instance().setSourceImageForClone(FModel.getPreferences().getPrefBoolean(FPref.UI_CLONE_MODE_SOURCE));
 
@@ -309,6 +315,11 @@ public class HostedMatch {
     public void endCurrentGame() {
         if (game == null) { return; }
         boolean isMatchOver = game.getView().isMatchOver();
+        
+        // Unregister game from security if it was a network game
+        if (isNetworkGame()) {
+            FServerManager.getInstance().unregisterGameFromSecurity(game);
+        }
 
         game = null;
 
@@ -495,5 +506,14 @@ public class HostedMatch {
 
     public List<PlayerControllerHuman> getHumanControllers(){
         return humanControllers;
+    }
+    
+    /**
+     * Determine if this is a network/multiplayer game that requires security.
+     * This is true if the server manager is hosting and has active connections.
+     */
+    private boolean isNetworkGame() {
+        FServerManager serverManager = FServerManager.getInstance();
+        return serverManager.isHosting() && serverManager.isMatchActive();
     }
 }
